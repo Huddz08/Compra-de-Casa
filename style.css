@@ -6,3 +6,5 @@
 .footer-actions{display:flex;gap:18px;flex-wrap:wrap;margin-top:18px}.footer-actions button{padding:7px 0;color:var(--green);font-size:11px}
 @media(prefers-reduced-motion:no-preference){button{transition:background .15s}.bar{animation:rise .5s ease-out;transform-origin:bottom}@keyframes rise{from{transform:scaleY(0)}to{transform:scaleY(1)}}}
 @media(max-width:800px){nav button{flex-direction:column;gap:3px;padding:7px 8px}nav button span{display:block;font-size:7px;max-width:65px;line-height:1.3}aside .brand{font-size:13px}}
+
+.price-detected{border:2px solid var(--green);background:#eef7e9}.candidate[aria-pressed="true"]{background:var(--green);color:white}

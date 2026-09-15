@@ -13,7 +13,12 @@ export function addItem(state, list, productId, quantity) {
   list.items.push({ id: uid(), productId, quantity, price, baseline: price, checked: false, updated: false });
 }
 export function priceCandidates(text) {
-  return [...new Set((text.match(/\d{1,5}[,.]\s*\d{2}(?!\d)/g) || []).map(s => Number(s.replace(/\s/g, '').replace(',', '.'))).filter(n => n > 0 && n < 100000))];
+  // Some shelf labels place cents on a separate line. Only join digit groups
+  // without punctuation when a currency marker establishes that it is a price.
+  const normalized = text.replace(/R\s*\$\s*(\d{1,5})\s+(\d{2})(?!\d)/gi, 'R$ $1,$2');
+  const matches = [...normalized.matchAll(/(?<![\d.,/])(\d{1,5})\s*[,.]\s*(\d{2})(?![\d.,/])/g)];
+  return [...new Set(matches.filter(m => !/^\s*(?:kg|g|ml|l|%)(?![a-z])/i.test(normalized.slice(m.index + m[0].length)))
+    .map(m => Number(`${m[1]}.${m[2]}`)).filter(n => n > 0 && n <= 99999))];
 }
 export function monthlySpend(state) {
   const months = new Map();

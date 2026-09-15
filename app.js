@@ -1,4 +1,5 @@
-import { uid, emptyState, money, productKey, addItem, total, priceCandidates, monthlySpend, previousMonth } from './domain.js';
+import { recognizePrices, fillSuggestedPrice } from './ocr.js';
+import { uid, emptyState, money, productKey, addItem, total, monthlySpend, previousMonth } from './domain.js';
 import { cloud, localPreview, prepareLogin, login, save, logout } from './storage.js';
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -131,9 +132,37 @@ function priceForm(id, photo=false) {
   modal('Atualizar preço',`<p><strong>${esc(p.name)}</strong><br>${esc(description(p))}</p><div class="photo-box"><label class="upload-label">▣ Fotografar ou escolher etiqueta<input id="photo-input" type="file" accept="image/*" capture="environment"></label><small>Aproxime a câmera do preço por embalagem.</small><img id="photo-preview" alt="Etiqueta escolhida" hidden><p id="ocr-status" role="status"></p><div id="candidates"></div></div><form id="price-form"><label>Preço por embalagem (R$)<input id="price-value" name="price" type="number" inputmode="decimal" min="0.01" max="99999" step="0.01" required value="${item.price??''}"></label><p class="form-note">Confirme se é o preço correto para esta embalagem e condição de compra. A foto é processada no aparelho e não fica salva.</p><button class="primary">Confirmar e salvar preço</button></form>`);
   $('#price-form').onsubmit=async e=>{e.preventDefault();const price=Number(new FormData(e.target).get('price'));if(await mutate(s=>{const list=s.lists.find(x=>x.id===l.id);if(list.closed)throw new Error('Esta compra já foi concluída.');const i=list.items.find(i=>i.id===id);i.price=price;i.updated=true;}))$('#modal').close();};
   const input=$('#photo-input'), output=$('#ocr-status'), candidates=$('#candidates'), value=$('#price-value'), preview=$('#photo-preview');
-  input.onchange=async()=>{const file=input.files[0];if(!file)return;if(file.size>20*1024*1024){output.textContent='Escolha uma imagem de até 20 MB.';return;} input.disabled=true;let worker,url;
-    try {url=URL.createObjectURL(file);preview.src=url;preview.hidden=false;output.textContent='Preparando leitura… Na primeira vez pode levar um pouco mais.';const {createWorker}=await import('https://cdn.jsdelivr.net/npm/tesseract.js@6.0.1/dist/tesseract.esm.min.js');worker=await createWorker('eng',1,{logger:m=>{if(m.status==='recognizing text')output.textContent=`Lendo etiqueta… ${Math.round(m.progress*100)}%`;}});const result=await worker.recognize(file);const prices=priceCandidates(result.data.text);output.textContent=prices.length?'Toque no valor correto e confirme abaixo.':'Não encontramos um preço nítido. Tente outra foto ou digite o valor.';candidates.innerHTML=prices.map(n=>`<button type="button" class="candidate" data-value="${n}">${money(n)}</button>`).join('');candidates.querySelectorAll('button').forEach(b=>b.onclick=()=>{value.value=Number(b.dataset.value).toFixed(2);value.focus();});if(prices.length===1)value.value=prices[0].toFixed(2);
-    }catch{output.textContent='Não foi possível ler a foto. Verifique a internet, use JPG/PNG ou digite o preço.';}finally{if(worker)await worker.terminate();if(url)URL.revokeObjectURL(url);input.disabled=false;}
+  const submit = $('#price-form button');
+  let reading = false;
+  const originalSubmit = $('#price-form').onsubmit;
+  $('#price-form').onsubmit = event => { if (reading) { event.preventDefault(); return; } return originalSubmit(event); };
+  input.onchange = async () => {
+    const file = input.files[0]; if (!file) return;
+    if (file.size > 20 * 1024 * 1024) { output.textContent = 'Escolha uma imagem de até 20 MB.'; input.value = ''; return; }
+    reading = true; input.disabled = true; value.disabled = true; submit.disabled = true;
+    value.value = ''; candidates.innerHTML = ''; value.classList.remove('price-detected');
+    const url = URL.createObjectURL(file);
+    try {
+      preview.src = url; preview.hidden = false;
+      output.textContent = 'Lendo o preço… Na primeira foto, o carregamento pode levar alguns segundos.';
+      const prices = await recognizePrices(file, progress => { output.textContent = 'Lendo etiqueta… ' + progress + '%'; });
+      if (!input.isConnected) return;
+      const found = fillSuggestedPrice(value, prices);
+      if (found) {
+        value.classList.add('price-detected');
+        output.textContent = 'Preço preenchido: ' + money(prices[0]) + (prices.length > 1 ? '. Há outros valores na etiqueta: confira o sugerido ou toque em uma alternativa.' : '. Confira e toque em Confirmar e salvar preço.');
+        if (prices.length > 1) {
+          candidates.innerHTML = prices.map((n,index) => '<button type="button" class="candidate" aria-pressed="' + (index === 0) + '" data-value="' + n + '">' + money(n) + '</button>').join('');
+          candidates.querySelectorAll('button').forEach(button => button.onclick = () => {
+            fillSuggestedPrice(value, [Number(button.dataset.value)]);
+            candidates.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b === button)));
+            output.textContent = 'Preço preenchido: ' + money(Number(button.dataset.value)) + '. Confira e salve.';
+          });
+        }
+        value.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      } else output.textContent = 'Não encontramos um preço nítido. Fotografe mais perto da etiqueta ou digite o valor.';
+    } catch { if (input.isConnected) output.textContent = 'Não foi possível ler a foto. Confira a internet e tente outra foto em JPG/PNG.'; }
+    finally { URL.revokeObjectURL(url); reading = false; input.disabled = false; input.value = ''; value.disabled = false; submit.disabled = false; }
   };
   if(photo)input.click();
 }
