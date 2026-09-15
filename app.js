@@ -1,11 +1,15 @@
 import { recognizePrices, fillSuggestedPrice } from './ocr.js';
-import { uid, emptyState, money, productKey, addItem, total, monthlySpend, previousMonth } from './domain.js';
+import { uid, emptyState, money, productKey, addItem, total, monthlySpend, previousMonth, pendingItems, purchaseHistory, mergeListDraft, finalizeList } from './domain.js';
 import { cloud, localPreview, prepareLogin, login, save, logout } from './storage.js';
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const nowMonth = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; };
 const monthName = m => new Date(m+'-02T12:00:00').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
 let state = emptyState(), selected = '', tab = 'list', filter = '', busy = false, toastTimer;
+let remoteState = emptyState(), draftBase = null, editing = false, dirty = false;
+let modalCleanup = () => {};
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+const displayDate = date => date ? date.split('-').reverse().join('/') : 'Data não registrada';
 const compactMoney = n => n == null ? '—' : n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
 const current = () => state.lists.find(l => l.id === selected);
 const product = id => state.products.find(p => p.id === id);
@@ -13,19 +17,60 @@ const description = p => `${p.brand} · ${p.type} · ${p.size} ${p.unit}`;
 const status = message => { $('#sync').textContent = message; };
 function toast(message) { $('#toast').textContent = message; $('#toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $('#toast').hidden = true, 6000); }
 function errorMessage(e) { if (e.code === 'auth/popup-closed-by-user') return 'Login cancelado. Toque em Entrar com Google para tentar novamente.'; if (e.code === 'auth/popup-blocked') return 'Permita a janela de login e tente novamente no Chrome ou Safari.'; if (e.code === 'auth/unauthorized-domain') return 'Autorize o domínio deste site em Authentication → Settings no Firebase.'; if (e.code === 'auth/operation-not-allowed') return 'Habilite o provedor Google em Authentication no Firebase.'; if (e.code?.includes('permission-denied')) return 'Este e-mail não tem acesso à casa. Peça ao administrador para autorizá-lo no Firebase ou entre com outra conta.'; if (e.code?.includes('network')) return 'Sem conexão. Verifique a internet e tente novamente.'; return e.message || 'Não foi possível concluir. Tente novamente.'; }
-async function mutate(change) {
+async function persist(change) {
   if (busy) return false;
-  busy = true; const expected = state.revision; const next = structuredClone(state);
-  try { change(next); next.revision = expected + 1; status('Salvando…'); await save(next, expected); if (state.revision <= next.revision) state = next; render(); status(cloud ? '● Sincronizado com a casa' : '● Salvo neste aparelho'); return true; }
+  busy = true; const expected = remoteState.revision; const next = structuredClone(remoteState);
+  try { change(next); next.revision = expected + 1; status('Salvando…'); await save(next, expected); if (remoteState.revision <= next.revision) receiveState(next); status(cloud ? '● Sincronizado com a casa' : '● Salvo neste aparelho'); return true; }
   catch(e) { toast(errorMessage(e)); status('⚠ Alteração não salva'); return false; }
   finally { busy = false; }
 }
+async function mutate(change) {
+  if (!editing) return persist(change);
+  if (busy) return false;
+  try { const next = structuredClone(state); change(next); state = next; dirty = true; render(); status('● Alterações não salvas'); return true; }
+  catch (error) { toast(errorMessage(error)); return false; }
+}
+function receiveState(data) {
+  const working = editing && current() ? structuredClone(current()) : null;
+  const products = state.products;
+  remoteState = structuredClone(data); state = structuredClone(data);
+  if (working) {
+    state.lists = state.lists.filter(l => l.id !== working.id); state.lists.push(working);
+    products.forEach(p => { if (!state.products.some(x => x.id === p.id)) state.products.push(p); });
+  }
+  render();
+}
+function openList(id) {
+  selected = id; tab = 'list'; filter = ''; state = structuredClone(remoteState);
+  editing = Boolean(current()); draftBase = current() ? structuredClone(current()) : null; dirty = false; render();
+}
+async function saveEditor(finish = false) {
+  if (!current() || busy) return false;
+  const draft = structuredClone(current()), products = state.products;
+  const ok = await persist(next => {
+    const merged = mergeListDraft(next, draftBase, draft, products);
+    if (finish) finalizeList(merged, draft.id);
+    next.lists = merged.lists; next.products = merged.products;
+  });
+  if (ok) { openList(draft.id); toast(finish ? 'Compra finalizada. Os itens pendentes foram preservados.' : 'Lista salva.'); }
+  return ok;
+}
+function navigate(action) {
+  if (busy) return toast('Aguarde o salvamento terminar.');
+  const proceed = () => { editing = false; dirty = false; draftBase = null; state = structuredClone(remoteState); action(); render(); };
+  if (!dirty) return proceed();
+  modal('Salvar alterações da lista?', '<p>Você tem alterações que ainda não foram salvas.</p><div class="dialog-actions"><button class="primary" id="save-leave">Salvar e continuar</button><button id="discard-leave">Descartar alterações</button><button id="stay-list">Continuar editando</button></div>');
+  $('#save-leave').onclick = async () => { if (await saveEditor()) { closeModal(); proceed(); } };
+  $('#discard-leave').onclick = () => { closeModal(); proceed(); };
+  $('#stay-list').onclick = closeModal;
+}
+window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
 const loginButton = $('#google-login');
 $('#login-mode').textContent = cloud ? 'Apenas contas autorizadas da família têm acesso.' : localPreview ? 'Prévia local · Dados somente neste navegador. O login Google estará disponível após configurar o Firebase.' : 'O acesso aguarda a configuração do Firebase pelo responsável pela casa.';
 if (localPreview) { loginButton.textContent = 'Experimentar neste aparelho →'; loginButton.disabled = false; }
 if (cloud) prepareLogin().then(() => { loginButton.disabled = false; }).catch(e => { $('#login-error').textContent = 'Não foi possível preparar o login. Confira a conexão e a configuração e recarregue a página. ' + errorMessage(e); });
 function closeSession(error) {
-  state = emptyState(); selected = ''; $('#content').innerHTML = ''; $('#modal').close();
+  state = emptyState(); remoteState = emptyState(); selected = ''; editing = false; dirty = false; $('#content').innerHTML = ''; closeModal();
   $('#app').hidden = true; $('#login-screen').hidden = false;
   $('#login-error').textContent = errorMessage(error);
   logout().catch(() => {});
@@ -33,15 +78,17 @@ function closeSession(error) {
 $('#login-form').onsubmit = async e => {
   e.preventDefault(); loginButton.disabled = true; $('#login-error').textContent = '';
   try {
-    await login(data => { state = data; if (!current()) selected = [...state.lists].sort((a,b)=>b.month.localeCompare(a.month)||b.createdAt.localeCompare(a.createdAt))[0]?.id || ''; render(); }, closeSession);
+    await login(receiveState, closeSession);
     $('#login-screen').hidden = true; $('#app').hidden = false;
     status(cloud ? '● Sincronizado com a casa' : '● Salvo neste aparelho');
   } catch(err) { $('#login-error').textContent = errorMessage(err); }
   finally { loginButton.disabled = false; }
 };
-$('#logout').onclick = async () => { await logout(); location.reload(); };
-$('#close-modal').onclick = () => $('#modal').close();
-document.querySelectorAll('[data-tab]').forEach(b => { b.setAttribute('aria-label', b.querySelector('span').textContent); b.onclick = () => { tab = b.dataset.tab; filter = ''; render(); }; });
+$('#logout').onclick = () => navigate(async () => { await logout(); location.reload(); });
+function closeModal() { modalCleanup(); modalCleanup = () => {}; $('#modal').close(); $('#modal-body').innerHTML = ''; }
+$('#close-modal').onclick = closeModal;
+$('#modal').addEventListener('cancel', e => { e.preventDefault(); closeModal(); });
+document.querySelectorAll('[data-tab]').forEach(b => { b.setAttribute('aria-label', b.querySelector('span').textContent); b.onclick = () => navigate(() => { tab = b.dataset.tab; selected = ''; filter = ''; }); });
 $('#export').onclick = () => { const url = URL.createObjectURL(new Blob([JSON.stringify(state,null,2)],{type:'application/json'})); const a = document.createElement('a'); a.href = url; a.download = `compra-de-casa-${nowMonth()}.json`; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000); };
 $('#backup-mobile').onclick = () => $('#export').click();
 $('#logout-mobile').onclick = () => $('#logout').click();
@@ -79,7 +126,7 @@ $('#import-backup').onclick = () => {
   };
   $('#confirm-import').onclick = async () => { if (!imported) return; if (await mutate(s=>{if(s.products.length||s.lists.length)throw new Error('A casa já recebeu dados. Importação cancelada.');s.products=imported.products;s.lists=imported.lists;})) { selected=state.lists.at(-1)?.id||'';$('#modal').close();render();toast('Backup importado.'); } };
 };
-function modal(title, body) { $('#modal-title').textContent = title; $('#modal-body').innerHTML = body; $('#modal').showModal(); }
+function modal(title, body) { modalCleanup(); modalCleanup = () => {}; $('#modal-title').textContent = title; $('#modal-body').innerHTML = body; if (!$('#modal').open) $('#modal').showModal(); }
 function delta(price, baseline) { if (price == null || baseline == null) return '<small class="muted">Sem comparação anterior</small>'; const d = Math.round((price-baseline)*100)/100; return `<small class="delta ${d>0?'up':d<0?'down':''}">${d>0?'↗':d<0?'↘':'→'} ${d===0?'Mesmo preço':money(Math.abs(d)) + (d>0?' mais caro':' mais barato')}</small>`; }
 function render() {
   document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('active',b.dataset.tab===tab));
