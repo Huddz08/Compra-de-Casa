@@ -1,0 +1,31 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isFamily() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.firebase.sign_in_provider == 'google.com'
+        && exists(/databases/$(database)/documents/allowedEmails/$(request.auth.token.email))
+        && get(/databases/$(database)/documents/allowedEmails/$(request.auth.token.email)).data.enabled == true;
+    }
+    // Access is administered only through the Firebase console (admin IAM).
+    match /allowedEmails/{email} {
+      allow read, write: if false;
+    }
+    // All approved accounts share one household, regardless of UID.
+    match /households/casa {
+      allow read: if isFamily();
+      allow create: if isFamily()
+        && request.resource.data.keys().hasOnly(['products', 'lists', 'revision'])
+        && request.resource.data.products is list
+        && request.resource.data.lists is list
+        && request.resource.data.revision == 1;
+      allow update: if isFamily()
+        && request.resource.data.keys().hasOnly(['products', 'lists', 'revision'])
+        && request.resource.data.products is list
+        && request.resource.data.lists is list
+        && request.resource.data.revision == resource.data.revision + 1;
+      allow delete: if false;
+    }
+  }
+}
