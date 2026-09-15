@@ -9,7 +9,8 @@ export function lastPrice(state, productId, beforeMonth) {
 }
 export function addItem(state, list, productId, quantity) {
   if (list.items.some(i => i.productId === productId)) throw new Error('Este produto já está na lista. Ajuste a quantidade nele.');
-  const price = list.purchaseDate ? purchaseHistory(state, productId).filter(p => p.date && p.date <= list.purchaseDate).at(-1)?.price ?? lastPrice(state, productId, list.month) : lastPrice(state, productId, list.month);
+  const cutoff = list.purchaseDate || list.month + '-31';
+  const price = purchaseHistory(state, productId).filter(p => p.date ? p.date <= cutoff : p.month < list.month).at(-1)?.price ?? lastPrice(state, productId, list.month);
   list.items.push({ id: uid(), productId, quantity, price, baseline: price, checked: false, updated: false });
 }
 export function priceCandidates(text) {
@@ -22,7 +23,7 @@ export function priceCandidates(text) {
 }
 export function monthlySpend(state) {
   const months = new Map();
-  state.lists.filter(l => l.closed).forEach(l => months.set(l.month, (months.get(l.month) || 0) + total(l, true)));
+  state.lists.filter(l => l.closed).forEach(l => months.set(spendMonth(l), roundMoney((months.get(spendMonth(l)) || 0) + paidTotal(l))));
   return [...months].sort(([a], [b]) => a.localeCompare(b));
 }
 export function previousMonth(month) {
@@ -31,6 +32,17 @@ export function previousMonth(month) {
 }
 
 export const pendingItems = list => list.items.filter(i => !i.checked);
+export const roundMoney = value => Math.round((value + Number.EPSILON) * 100) / 100;
+export const spendMonth = list => list.purchaseDate?.slice(0,7) || list.month;
+export const paidTotal = list => list.closed && Number.isFinite(list.actualTotal) ? list.actualTotal : roundMoney(total(list, true));
+export const checkoutAdjustment = list => roundMoney(paidTotal(list) - total(list, true));
+export const validDate = value => /^\d{4}-\d{2}-\d{2}$/.test(value || '') && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0,10) === value;
+export function validateListDetails(list) {
+  if (!list.name?.trim()) throw new Error('Informe o nome da lista.');
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(list.month || '')) throw new Error('Informe o mês da lista.');
+  if (list.purchaseDate && !validDate(list.purchaseDate)) throw new Error('Informe uma data válida.');
+  if (list.actualTotal != null && (!Number.isFinite(list.actualTotal) || list.actualTotal < 0 || list.actualTotal > 9999999)) throw new Error('Informe um valor de caixa válido, entre 0 e 9.999.999.');
+}
 export function purchaseHistory(state, productId) {
   return state.lists.filter(l => l.closed).flatMap(l => l.items
     .filter(i => i.productId === productId && i.checked && i.price != null)
@@ -55,18 +67,21 @@ export function mergeListDraft(remote, base, draft, products) {
   next.lists[next.lists.findIndex(l => l.id === list.id)] = list;
   return next;
 }
-export function finalizeList(state, listId, timestamp = new Date().toISOString()) {
+export function finalizeList(state, listId, timestamp = new Date().toISOString(), actualTotal) {
   const list = state.lists.find(l => l.id === listId);
   if (!list || list.closed) throw new Error('Esta compra já foi finalizada ou não está disponível.');
   const bought = list.items.filter(i => i.checked);
   if (!bought.length) throw new Error('Marque pelo menos um item comprado antes de finalizar.');
   if (bought.some(i => !Number.isFinite(i.price) || i.price <= 0)) throw new Error('Informe o preço dos itens no carrinho.');
-  if (!list.market?.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(list.purchaseDate || '')) throw new Error('Informe o mercado e a data da compra em Editar dados.');
+  validateListDetails(list);
+  if (!list.market?.trim() || !validDate(list.purchaseDate)) throw new Error('Informe o mercado e a data da compra.');
+  const paid = actualTotal ?? roundMoney(total(list, true));
+  if (!Number.isFinite(paid) || paid < 0 || paid > 9999999) throw new Error('Informe um valor de caixa válido.');
   const pending = pendingItems(list);
-  list.closed = true; list.closedAt = timestamp;
+  list.closed = true; list.closedAt = timestamp; list.actualTotal = roundMoney(paid);
   if (!pending.length) return null;
   const followup = { id: uid(), name: ('Pendências · ' + list.name).slice(0,70), month: list.month,
-    market: '', purchaseDate: list.purchaseDate, notes: 'Itens não encontrados na compra anterior.', createdAt: timestamp,
+    market: '', purchaseDate: '', notes: 'Itens não encontrados na compra anterior.', createdAt: timestamp,
     closed: false, sourceListId: list.id,
     items: pending.map(i => ({ id: uid(), productId: i.productId, quantity: i.quantity, price: i.price, baseline: i.baseline,
       checked: false, updated: false, sourceItemId: i.id })) };

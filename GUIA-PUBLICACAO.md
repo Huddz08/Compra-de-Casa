@@ -35,7 +35,7 @@ Referências: [login com Google](https://firebase.google.com/docs/auth/web/googl
 1. Entre no [GitHub](https://github.com/) e clique em **New repository**.
 2. Nome sugerido: `compra-de-casa`. Pode ser **Private**.
 3. Crie o repositório. Na página inicial dele, use **uploading an existing file** ou **Add file → Upload files**.
-4. Envie os arquivos da pasta do projeto diretamente para a raiz do repositório. Inclua `index.html`, `app.js`, `style.css`, `mobile-list.css`, `domain.js`, `storage.js`, `config.js`, `icon.svg`, `package.json`, `build.mjs`, `vercel.json` e os guias. Pode incluir os testes e as regras também.
+4. Envie os arquivos da pasta do projeto diretamente para a raiz do repositório. Inclua `index.html`, `app.js`, `style.css`, `mobile-list.css`, `shopping-flow.css`, `domain.js`, `ocr.js`, `storage.js`, `config.js`, `icon.svg`, `package.json`, `build.mjs`, `vercel.json` e os guias. Pode incluir os testes e as regras também.
 5. Não envie pastas `.git`, `node_modules`, `public`, `.vercel`, nem backups pessoais. Confirme em **Commit changes**.
 
 Referência: [começar com repositórios no GitHub](https://docs.github.com/en/repositories/creating-and-managing-repositories/quickstart-for-repositories).
@@ -56,9 +56,9 @@ Quando você editar e salvar arquivos no GitHub, a integração da Vercel public
 
 1. Crie uma lista para um mês anterior. Cadastre um produto com marca, tipo e embalagem, informe o preço, marque-o e finalize a compra.
 2. Crie a lista do mês atual e escolha copiar. Verifique preço herdado e quantidade, com a marcação de comprado desativada.
-3. Toque na câmera. Fotografe uma etiqueta nítida, selecione o preço encontrado e confirme. Veja a seta de variação.
-4. Abra o mesmo endereço em outro aparelho. Entre com outra conta Google autorizada e veja se a mesma lista aparece e recebe alterações.
-5. Finalize a segunda compra e confira a aba **Evolução dos gastos**.
+3. Toque na câmera. Fotografe uma etiqueta nítida, confira o preço preenchido automaticamente e confirme. Veja a seta de variação.
+4. Toque em **Salvar lista**. Abra o mesmo endereço em outro aparelho. Entre com outra conta Google autorizada e veja se a mesma lista aparece e recebe alterações.
+5. Finalize a segunda compra, informe mercado, data e valor real do caixa e confira a aba **Evolução dos gastos**. Se houver itens não comprados, confira a nova lista de pendências. Em **Nossos produtos**, abra o gráfico de um produto e toque nos pontos.
 6. No navegador do celular, use **Adicionar à tela inicial** para criar um atalho. O app precisa de internet para sincronizar e carregar a leitura de fotos.
 
 ## Dados locais e backup
