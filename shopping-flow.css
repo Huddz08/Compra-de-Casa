@@ -23,3 +23,6 @@ textarea{font:inherit;display:block;width:100%;margin-top:7px;border:1px solid #
   .pending-banner{font-size:10px;padding:8px 10px}.checkout-summary{font-size:10px;margin:7px 0}.shopping-view .item-open{font-size:12px}
   #history-detail dl{grid-template-columns:95px 1fr}
 }
+
+.danger-button { color: #a02d27; border: 1px solid #a02d27; background: transparent; margin-top: 16px; min-height: 44px; }
+.danger-button:hover { background: #fff0ee; }

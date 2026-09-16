@@ -1,5 +1,5 @@
 import { recognizePrices, fillSuggestedPrice } from './ocr.js';
-import { uid, emptyState, money, productKey, addItem, total, monthlySpend, previousMonth, pendingItems, purchaseHistory, mergeListDraft, finalizeList, paidTotal, checkoutAdjustment, roundMoney, spendMonth, validateListDetails } from './domain.js';
+import { uid, emptyState, money, productKey, addItem, total, monthlySpend, previousMonth, pendingItems, purchaseHistory, mergeListDraft, finalizeList, paidTotal, checkoutAdjustment, roundMoney, spendMonth, validateListDetails, deleteList } from './domain.js';
 import { cloud, localPreview, prepareLogin, login, save, logout } from './storage.js';
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -179,8 +179,25 @@ function readListFields(form) {
 }
 function listDetails() {
   const l=current();
-  modal('Dados da lista',`<form id="details-form">${listFields(l)}${l.closed?`<label>Total pago no caixa (R$)<input name="actualTotal" type="number" min="0" max="9999999" step="0.01" required value="${paidTotal(l).toFixed(2)}"></label>`:''}<p class="form-note">Depois de aplicar os dados, toque em Salvar lista. ${l.closed?'Os itens da compra concluída ficam preservados.':''}</p><button class="primary">Aplicar dados</button></form>`);
+  modal('Dados da lista',`<form id="details-form">${listFields(l)}${l.closed?`<label>Total pago no caixa (R$)<input name="actualTotal" type="number" min="0" max="9999999" step="0.01" required value="${paidTotal(l).toFixed(2)}"></label>`:''}<p class="form-note">Depois de aplicar os dados, toque em Salvar lista. ${l.closed?'Os itens da compra concluída ficam preservados.':''}</p><button class="primary">Aplicar dados</button><button type="button" class="danger-button" id="delete-list">Excluir essa lista</button></form>`);
+  $('#delete-list').onclick=()=>confirmDeleteList(l.id);
   $('#details-form').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target);if(await mutate(s=>{const list=s.lists.find(x=>x.id===l.id);Object.assign(list,readListFields(f));if(l.closed)list.actualTotal=Number(f.get('actualTotal'));validateListDetails(list);})){closeModal();}};
+}
+function confirmDeleteList(listId) {
+  if (busy) return toast('Aguarde o salvamento terminar.');
+  const list = remoteState.lists.find(l => l.id === listId);
+  if (!list) return toast('Esta lista já foi excluída. Reabra a página de listas.');
+  const message = 'Excluir a lista “' + list.name + '”?\n\nEsta ação não pode ser desfeita.' + (list.closed ? ' Esta compra será removida dos gráficos de gastos e do histórico de preços.' : '') + ' Os produtos cadastrados e as outras listas serão mantidos. Alterações não salvas nesta lista serão descartadas.';
+  if (!window.confirm(message)) return;
+  const button = $('#delete-list');
+  button.disabled = true;
+  persist(s => deleteList(s, listId)).then(ok => {
+    if (ok) {
+      editing = false; dirty = false; draftBase = null; selected = ''; filter = '';
+      state = structuredClone(remoteState); closeModal(); render(); window.scrollTo({top:0});
+      toast('Lista excluída.');
+    } else if (button.isConnected) button.disabled = false;
+  });
 }
 function checkoutForm() {
   const l=current(), bought=l.items.filter(i=>i.checked), pending=pendingItems(l).length, subtotal=roundMoney(total(l,true));

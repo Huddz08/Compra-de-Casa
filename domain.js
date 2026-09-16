@@ -1,5 +1,16 @@
 export const uid = () => crypto.randomUUID();
 export const emptyState = () => ({ products: [], lists: [], revision: 0 });
+export function deleteList(state, listId) {
+  if (!state.lists.some(l => l.id === listId)) throw new Error('Esta lista já foi excluída. Reabra a página de listas.');
+  state.lists = state.lists.filter(l => l.id !== listId);
+  for (const list of state.lists) {
+    if (list.followupListId === listId) delete list.followupListId;
+    if (list.sourceListId === listId) {
+      delete list.sourceListId;
+      for (const item of list.items) delete item.sourceItemId;
+    }
+  }
+}
 export const money = n => n == null ? 'Sem preço' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n);
 export const normalize = s => String(s).trim().toLocaleLowerCase('pt-BR').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ');
 export const productKey = p => [p.name, p.brand, p.type, Number(p.size), p.unit].map(normalize).join('|');
